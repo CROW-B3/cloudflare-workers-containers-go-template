@@ -3,55 +3,103 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	_ "github.com/joho/godotenv/autoload"
+	"server/config"
+	"server/internal/handlers"
+	"server/internal/repositories"
+	"server/internal/routes"
+	"server/internal/services"
+	"server/pkg/database"
+	"server/pkg/logger"
 )
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	message := os.Getenv("MESSAGE")
-	instanceId := os.Getenv("CLOUDFLARE_DURABLE_OBJECT_ID")
-	fmt.Fprintf(w, "Hi, I'm a container and this is my message: \"%s\", my instance ID is: %s", message, instanceId)
-}
-
-func errorHandler(w http.ResponseWriter, r *http.Request) {
-	panic("This is a panic")
-}
-
 func main() {
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-
-	router := http.NewServeMux()
-	router.HandleFunc("/", handler)
-	router.HandleFunc("/container", handler)
-	router.HandleFunc("/error", errorHandler)
-
-	server := &http.Server{
-		Addr:    ":8080",
-		Handler: router,
+	// Load configuration
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Printf("Failed to load config: %v\n", err)
+		os.Exit(1)
 	}
 
+	// Initialize logger
+	if err := logger.InitLogger(cfg.App.Environment); err != nil {
+		fmt.Printf("Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Sync()
+
+	logger.Info("Starting application")
+
+	// Initialize database
+	if err := database.InitDatabase(cfg); err != nil {
+		logger.Fatal("Failed to initialize database")
+	}
+	defer database.CloseDatabase()
+
+	// Auto-migrate database models
+	// Uncomment when ready to use database
+	// if err := database.DB.AutoMigrate(&models.User{}); err != nil {
+	// 	logger.Fatal("Failed to migrate database")
+	// }
+
+	// Set Gin mode
+	gin.SetMode(cfg.Server.Mode)
+
+	// Initialize router
+	router := gin.New()
+
+	// Initialize repositories
+	userRepo := repositories.NewUserRepository(database.DB)
+
+	// Initialize services
+	userService := services.NewUserService(userRepo)
+
+	// Initialize handlers
+	healthHandler := handlers.NewHealthHandler(cfg)
+	userHandler := handlers.NewUserHandler(userService)
+
+	// Setup routes
+	routes.SetupRoutes(router, healthHandler, userHandler)
+
+	// Create server
+	addr := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)
+	server := &http.Server{
+		Addr:           addr,
+		Handler:        router,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		MaxHeaderBytes: 1 << 20,
+	}
+
+	// Start server in goroutine
 	go func() {
-		log.Printf("Server listening on %s\n", server.Addr)
+		logger.Info(fmt.Sprintf("Server starting on %s", addr))
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal(err)
+			logger.Fatal("Failed to start server")
 		}
 	}()
 
-	sig := <-stop
+	// Wait for interrupt signal to gracefully shutdown the server
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-quit
 
-	log.Printf("Received signal (%s), shutting down server...", sig)
+	logger.Info(fmt.Sprintf("Received signal (%s), shutting down server...", sig))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Graceful shutdown with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Server.ShutdownTimeout)*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		log.Fatal(err)
+		logger.Fatal("Server forced to shutdown")
 	}
 
-	log.Println("Server shutdown successfully")
+	logger.Info("Server shutdown successfully")
 }

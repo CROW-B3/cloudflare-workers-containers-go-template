@@ -1,0 +1,19 @@
+server:
+  port: "8080"
+  host: "0.0.0.0"
+  mode: "debug"  # gin mode: debug, release, test
+  shutdowntimeout: 5  # seconds
+
+database:
+  host: "localhost"
+  port: "5432"
+  user: "postgres"
+  password: "postgres"
+  dbname: "myapp"
+  sslmode: "disable"
+  timezone: "UTC"
+
+app:
+  name: "go-microservice"
+  version: "1.0.0"
+  environment: "development"  # development, staging, production
