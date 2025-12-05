@@ -1,0 +1,59 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build artifacts
+.next
+out
+build
+dist
+*.log
+
+# Environment files
+.env*
+.dev.vars*
+
+# Git
+.git
+.github
+.gitignore
+
+# CI/CD
+.husky
+
+# Editor configs
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Documentation
+*.md
+LICENSE
+
+# Docker files
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage
+*.test
+
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+vendor/
+
+# Wrangler specific
+.wrangler
+wrangler.toml
+wrangler.jsonc
